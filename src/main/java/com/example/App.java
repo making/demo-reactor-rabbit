@@ -1,5 +1,6 @@
 package com.example;
 
+import com.rabbitmq.client.AMQP;
 import com.rabbitmq.client.ConnectionFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -10,6 +11,7 @@ import org.springframework.web.reactive.function.server.RouterFunction;
 import org.springframework.web.reactive.function.server.RouterFunctions;
 import org.springframework.web.reactive.function.server.ServerResponse;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 import reactor.ipc.netty.http.server.HttpServer;
 import reactor.rabbitmq.*;
@@ -43,29 +45,28 @@ public class App {
         Receiver receiver = ReactorRabbitMq.createReceiver(receiverOptions);
 
         // Declare and bind Exchange/Queue
-        sender.declare(exchange("demo").type("topic"))
+        Mono<AMQP.Queue.BindOk> declareAndBind = sender.declare(exchange("demo").type("topic"))
                 .then(sender.declare(queue("demo.sink").durable(true)))
                 .then(sender.bind(ResourcesSpecification.binding("demo", "#", "demo.sink")))
                 .doOnSuccess(x -> log.info("Exchange and queue declared and bound."))
                 .doOnError(e -> {
                     log.error("Connection failed.", e);
                     System.exit(1);
-                })
-                .block();
+                }).cache();
 
         // Build stream pipelines
         Flux<OutboundMessage> inbound =
                 Flux.interval(Duration.ofMillis(100))
                         .map(i -> new OutboundMessage("demo", "#", ("Hello " + i).getBytes()));
-        Flux<String> send = sender.sendWithPublishConfirms(inbound)
+        Flux<String> send = declareAndBind.thenMany(sender.sendWithPublishConfirms(inbound)
                 .map(r -> new String(r.getOutboundMessage().getBody()) + " => " + r.isAck())
-                .log("send");
-        Flux<String> receive = Flux.interval(Duration.ofMillis(200))
+                .log("send"));
+        Flux<String> receive = declareAndBind.thenMany(Flux.interval(Duration.ofMillis(200))
                 .onBackpressureDrop()
                 .zipWith(receiver.consumeAutoAck("demo.sink")
                         .map(d -> new String(d.getBody())))
                 .map(Tuple2::getT2)
-                .log("receive");
+                .log("receive"));
 
         // Define route mappings
         return route(GET("/send"), req -> ok().contentType(MediaType.TEXT_EVENT_STREAM).body(send, String.class)) //
