@@ -7,13 +7,14 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.http.server.reactive.HttpHandler;
 import org.springframework.http.server.reactive.ReactorHttpHandlerAdapter;
+import org.springframework.web.reactive.function.server.HandlerStrategies;
 import org.springframework.web.reactive.function.server.RouterFunction;
 import org.springframework.web.reactive.function.server.RouterFunctions;
 import org.springframework.web.reactive.function.server.ServerResponse;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
-import reactor.ipc.netty.http.server.HttpServer;
+import reactor.netty.http.server.HttpServer;
 import reactor.rabbitmq.*;
 import reactor.util.function.Tuple2;
 
@@ -36,7 +37,7 @@ public class App {
         // Create a sender
         SenderOptions senderOptions = new SenderOptions()
                 .connectionFactory(connectionFactory)
-                .resourceCreationScheduler(Schedulers.elastic());
+                .resourceManagementScheduler(Schedulers.elastic());
         Sender sender = ReactorRabbitMq.createSender(senderOptions);
         // Create a receiver
         ReceiverOptions receiverOptions = new ReceiverOptions()
@@ -78,15 +79,15 @@ public class App {
         int port = Optional.ofNullable(System.getenv("PORT")) //
                 .map(Integer::parseInt) //
                 .orElse(8080);
-        HttpServer httpServer = HttpServer.create("0.0.0.0", port);
-
-        RouterFunction<ServerResponse> f = App.routes();
-        httpServer.startRouterAndAwait(routes -> {
-            HttpHandler httpHandler = RouterFunctions.toHttpHandler(f);
+        HttpServer httpServer = HttpServer.create().host("0.0.0.0").port(port);
+        httpServer.route(routes -> {
+            HttpHandler httpHandler = RouterFunctions.toHttpHandler(
+                    App.routes(), HandlerStrategies.builder().build());
             routes.route(x -> true, new ReactorHttpHandlerAdapter(httpHandler));
-        }, context -> {
+        }).bindUntilJavaShutdown(Duration.ofSeconds(3), disposableServer -> {
             long elapsed = System.currentTimeMillis() - begin;
-            log.info("Started in {} seconds", elapsed / 1000.0);
+            LoggerFactory.getLogger(App.class).info("Started in {} seconds",
+                    elapsed / 1000.0);
         });
     }
 }
