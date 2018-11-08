@@ -21,7 +21,6 @@ import reactor.util.function.Tuple2;
 import java.time.Duration;
 import java.util.Optional;
 
-import static org.springframework.web.reactive.function.server.RequestPredicates.GET;
 import static org.springframework.web.reactive.function.server.RouterFunctions.route;
 import static org.springframework.web.reactive.function.server.ServerResponse.ok;
 import static reactor.rabbitmq.ExchangeSpecification.exchange;
@@ -70,8 +69,9 @@ public class App {
                 .log("receive"));
 
         // Define route mappings
-        return route(GET("/send"), req -> ok().contentType(MediaType.TEXT_EVENT_STREAM).body(send, String.class)) //
-                .andRoute(GET("/receive"), req -> ok().contentType(MediaType.TEXT_EVENT_STREAM).body(receive, String.class));
+        return route() //
+            .GET("/send", req -> ok().contentType(MediaType.TEXT_EVENT_STREAM).body(send, String.class)) //
+            .GET("/receive", req -> ok().contentType(MediaType.TEXT_EVENT_STREAM).body(receive, String.class)).build();
     }
 
     public static void main(String[] args) throws Exception {
